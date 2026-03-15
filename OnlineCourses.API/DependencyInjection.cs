@@ -1,6 +1,8 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using OnlineCourses.Application.Interfaces.Repositories;
+using OnlineCourses.Application.Services;
 using OnlineCourses.Infrastructur.Data;
-
+using OnlineCourses.Infrastructur.Repositories;
 namespace OnlineCourses.API;
 
 public static class DependencyInjection
@@ -15,6 +17,10 @@ public static class DependencyInjection
 
         services.AddDbContext<ApplicationDbContext>(options =>
             options.UseSqlServer(connectionString));
+
+        services.AddScoped<ICourseService, CourseService>();
+        services.AddScoped<ICourseRepository , CourseRepository>();
+
 
         services
         .AddSwaggerServices();
