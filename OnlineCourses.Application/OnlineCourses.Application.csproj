@@ -7,6 +7,14 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="FluentValidation" Version="12.1.1" />
+    <PackageReference Include="FluentValidation.AspNetCore" Version="11.3.1" />
+    <PackageReference Include="FluentValidation.DependencyInjectionExtensions" Version="12.1.1" />
+    <PackageReference Include="Mapster" Version="10.0.0-pre02" />
+    <PackageReference Include="Mapster.DependencyInjection" Version="10.0.0-pre02" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\OnlineCourses.Domain\OnlineCourses.Domain.csproj" />
   </ItemGroup>
 

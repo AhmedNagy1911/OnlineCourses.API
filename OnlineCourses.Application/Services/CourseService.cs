@@ -1,4 +1,7 @@
-﻿using OnlineCourses.Application.Interfaces.Repositories;
+﻿using Mapster;
+using OnlineCourses.Application.DTOs;
+using OnlineCourses.Application.Interfaces.Repositories;
+using OnlineCourses.Application.Interfaces.Services;
 using OnlineCourses.Domain.Entities;
 
 namespace OnlineCourses.Application.Services;
@@ -7,27 +10,40 @@ public class CourseService(ICourseRepository courseRepository) : ICourseService
 {
     private readonly ICourseRepository _courseRepository = courseRepository;
 
-    public async Task<List<Course>> GetAllAsync()
+    public async Task<IEnumerable<CourseResponse>> GetAllAsync()
     {
-      return await _courseRepository.GetAllAsync();
+        var courses = await _courseRepository.GetAllAsync();
+        return courses.Adapt<IEnumerable<CourseResponse>>();
     }
 
-    public async Task<Course> GetByIdAsync(int id)
+    public async Task<CourseResponse?> GetByIdAsync(int id)
     {
-      return await _courseRepository.GetByIdAsync(id); 
+        var course = await _courseRepository.GetByIdAsync(id);
+        if (course is null) return null;
+        return course.Adapt<CourseResponse>();
     }
 
-    public Task AddAsync(Course course)
+    public async Task<CourseResponse> CreateAsync(CreateCourseRequest request)
     {
-       return _courseRepository.AddAsync(course);
+        var course = request.Adapt<Course>();
+        await _courseRepository.AddAsync(course);
+        return course.Adapt<CourseResponse>();
     }
-    public async Task UpdateAsync(Course course)
+
+    public async Task UpdateAsync(int id, CreateCourseRequest request)
     {
-       await _courseRepository.UpdateAsync(course);
+        var course = await _courseRepository.GetByIdAsync(id);
+        if (course is null) return;
+
+        request.Adapt(course);
+
+        await _courseRepository.UpdateAsync(course);
     }
+
     public async Task DeleteAsync(int id)
     {
-       await _courseRepository.DeleteAsync(id);
+        var course = await _courseRepository.GetByIdAsync(id);
+        if (course is null) return;
+        await _courseRepository.DeleteAsync(course);
     }
-    
 }

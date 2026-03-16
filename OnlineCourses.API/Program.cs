@@ -2,7 +2,7 @@ using OnlineCourses.API;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddDependeies(builder.Configuration);
+builder.Services.AddDependencies(builder.Configuration);
 
 var app = builder.Build();
 
