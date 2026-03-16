@@ -1,4 +1,5 @@
 ﻿using Microsoft.AspNetCore.Mvc;
+using OnlineCourses.API.Extensions;
 using OnlineCourses.Application.DTOs;
 using OnlineCourses.Application.Interfaces.Services;
 
@@ -20,9 +21,8 @@ public class CoursesController(ICourseService courseService) : ControllerBase
     [HttpGet("{id}")]
     public async Task<IActionResult> GetById(int id)
     {
-        var course = await _courseService.GetByIdAsync(id);
-        if (course is null) return NotFound();
-        return Ok(course);
+        var result = await _courseService.GetByIdAsync(id);
+        return result.IsFailure ? result.ToProblem() : Ok(result.Value);
     }
 
     [HttpPost]
