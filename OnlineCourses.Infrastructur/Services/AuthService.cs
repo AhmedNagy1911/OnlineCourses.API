@@ -1,119 +1,167 @@
-﻿using Microsoft.AspNetCore.Identity;
+﻿using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using OnlineCourses.Application.Auth.DTOs;
 using OnlineCourses.Application.Interfaces.Services;
 using OnlineCourses.Domain.Common;
 using OnlineCourses.Domain.Common.Errors;
 using OnlineCourses.Domain.Constants;
+using OnlineCourses.Domain.Entities;
 using OnlineCourses.Infrastructur.Persistence;
+using OnlineCourses.Infrastructur.Settings;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
+using System.Security.Cryptography;
 
 namespace OnlineCourses.Infrastructur.Services;
 
 public class AuthService(
     UserManager<ApplicationUser> userManager,
-    IConfiguration configuration) : IAuthService
+    IOptions<JwtSettings> jwtOptions) : IAuthService
 {
-    public async Task<Result<AuthResponse>> RegisterAsync(
-        RegisterRequest request,
-        CancellationToken cancellationToken = default)
-    {
-        // 1. Check duplicate email
-        var existingUser = await userManager.FindByEmailAsync(request.Email);
-        if (existingUser is not null)
-            return Result.Failure<AuthResponse>(AuthErrors.DuplicateEmail);
+    private readonly JwtSettings _jwt = jwtOptions.Value;
 
-        // 2. Create user
+    public async Task<Result<AuthResponse>> RegisterAsync(
+        RegisterRequest request, CancellationToken ct = default)
+    {
+        if (await userManager.FindByEmailAsync(request.Email) is not null)
+            return Result.Failure<AuthResponse>(AuthErrors.EmailAlreadyExists);
+
         var user = new ApplicationUser
         {
-            FirstName = request.FirstName,
-            LastName = request.LastName,
+            UserName = request.Email,
             Email = request.Email,
-            UserName = request.Email
+            FirstName = request.FirstName,
+            LastName = request.LastName
         };
 
-        var createResult = await userManager.CreateAsync(user, request.Password);
-        if (!createResult.Succeeded)
-            return  Result.Failure<AuthResponse>(
-                AuthErrors.RegistrationFailed(createResult.Errors.Select(e => e.Description)));
+        var result = await userManager.CreateAsync(user, request.Password);
 
-        // 3. Assign default role
-        await userManager.AddToRoleAsync(user, AppRoles.Student);
+        if (!result.Succeeded)
+        {
+            var error = new Error(
+                "Auth.RegistrationFailed",
+                result.Errors.First().Description,
+                StatusCodes.Status400BadRequest);
 
-        // 4. Generate token
-        return Result<AuthResponse>.Success(await BuildAuthResponseAsync(user));
+            return Result.Failure<AuthResponse>(error);
+        }
+
+        return await BuildAuthResponseAsync(user);
     }
 
     public async Task<Result<AuthResponse>> LoginAsync(
-        LoginRequest request,
-        CancellationToken cancellationToken = default)
+        LoginRequest request, CancellationToken ct = default)
     {
-        // 1. Find user
         var user = await userManager.FindByEmailAsync(request.Email);
+
+        if (user is null || !await userManager.CheckPasswordAsync(user, request.Password))
+            return Result.Failure<AuthResponse>(AuthErrors.InvalidCredentials);
+
+        user.RefreshTokens.RemoveAll(t => !t.IsActive);
+        await userManager.UpdateAsync(user);
+
+        return await BuildAuthResponseAsync(user);
+    }
+
+    public async Task<Result<AuthResponse>> RefreshTokenAsync(
+        string token, CancellationToken ct = default)
+    {
+        var user = await userManager.Users
+            .SingleOrDefaultAsync(u => u.RefreshTokens.Any(t => t.Token == token), ct);
+
         if (user is null)
-            return Result.Failure<AuthResponse>(AuthErrors.InvalidCredentials);
+            return Result.Failure<AuthResponse>(AuthErrors.InvalidToken);
 
-        // 2. Verify password
-        var validPassword = await userManager.CheckPasswordAsync(user, request.Password);
-        if (!validPassword)
-            return Result.Failure<AuthResponse>(AuthErrors.InvalidCredentials);
+        var refreshToken = user.RefreshTokens.Single(t => t.Token == token);
 
-        // 3. Generate token
-        return Result<AuthResponse>.Success(await BuildAuthResponseAsync(user));
+        if (!refreshToken.IsActive)
+            return Result.Failure<AuthResponse>(
+                refreshToken.IsExpired
+                    ? AuthErrors.InvalidToken
+                    : AuthErrors.TokenAlreadyRevoked);
+
+        // Rotate: عطّل القديم وولّد جديد
+        refreshToken.RevokedOn = DateTime.UtcNow;
+
+        return await BuildAuthResponseAsync(user);
     }
 
-    // ─── Private Helpers ────────────────────────────────────────────────────
-
-    private async Task<AuthResponse> BuildAuthResponseAsync(ApplicationUser user)
+    public async Task<Result> RevokeTokenAsync(
+        string token, CancellationToken ct = default)
     {
-        var roles = await userManager.GetRolesAsync(user);
-        var token = GenerateJwtToken(user, roles);
-        var expiry = DateTime.UtcNow.AddMinutes(GetExpiryMinutes());
+        var user = await userManager.Users
+            .SingleOrDefaultAsync(u => u.RefreshTokens.Any(t => t.Token == token), ct);
 
-        return new AuthResponse(
-            Id: user.Id,
+        if (user is null)
+            return Result.Failure(AuthErrors.InvalidToken);
+
+        var refreshToken = user.RefreshTokens.Single(t => t.Token == token);
+
+        if (!refreshToken.IsActive)
+            return Result.Failure(AuthErrors.TokenAlreadyRevoked);
+
+        refreshToken.RevokedOn = DateTime.UtcNow;
+        await userManager.UpdateAsync(user);
+
+        return Result.Success();
+    }
+
+    // ──────────────────────────────────────────
+    // Private Helpers
+    // ──────────────────────────────────────────
+    private async Task<Result<AuthResponse>> BuildAuthResponseAsync(ApplicationUser user)
+    {
+        var (jwtToken, jwtExpiry) = GenerateJwtToken(user);
+        var refreshToken = GenerateRefreshToken();
+
+        user.RefreshTokens.Add(refreshToken);
+        await userManager.UpdateAsync(user);
+
+        return Result.Success(new AuthResponse(
+            UserId: user.Id,
             Email: user.Email!,
-            FirstName: user.FirstName,
-            LastName: user.LastName,
-            Token: token,
-            ExpiresAt: expiry,
-            Roles: roles
-        );
+            DisplayName: $"{user.FirstName} {user.LastName}",
+            Token: jwtToken,
+            TokenExpiration: jwtExpiry,
+            RefreshToken: refreshToken.Token,
+            RefreshTokenExpiration: refreshToken.ExpiresOn
+        ));
     }
 
-    private string GenerateJwtToken(ApplicationUser user, IList<string> roles)
+    private (string Token, DateTime Expiry) GenerateJwtToken(ApplicationUser user)
     {
-        var jwtSettings = configuration.GetSection("JwtSettings");
-        var key = new SymmetricSecurityKey(
-                            Encoding.UTF8.GetBytes(jwtSettings["Key"]!));
-        var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-
         var claims = new List<Claim>
         {
             new(JwtRegisteredClaimNames.Sub,   user.Id),
             new(JwtRegisteredClaimNames.Email, user.Email!),
             new(JwtRegisteredClaimNames.Jti,   Guid.NewGuid().ToString()),
-            new("firstName", user.FirstName),
-            new("lastName",  user.LastName)
+            new("displayName", $"{user.FirstName} {user.LastName}")
         };
 
-        // Add role claims
-        claims.AddRange(roles.Select(role => new Claim(ClaimTypes.Role, role)));
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_jwt.Key));
+        var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+        var expiry = DateTime.UtcNow.AddMinutes(_jwt.DurationInMinutes);
 
         var token = new JwtSecurityToken(
-            issuer: jwtSettings["Issuer"],
-            audience: jwtSettings["Audience"],
+            issuer: _jwt.Issuer,
+            audience: _jwt.Audience,
             claims: claims,
-            expires: DateTime.UtcNow.AddMinutes(GetExpiryMinutes()),
+            expires: expiry,
             signingCredentials: creds
         );
 
-        return new JwtSecurityTokenHandler().WriteToken(token);
+        return (new JwtSecurityTokenHandler().WriteToken(token), expiry);
     }
 
-    private int GetExpiryMinutes() =>
-        int.TryParse(configuration["JwtSettings:ExpiryMinutes"], out var mins) ? mins : 60;
+    private static RefreshToken GenerateRefreshToken() => new()
+    {
+        Token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64)),
+        CreatedOn = DateTime.UtcNow,
+        ExpiresOn = DateTime.UtcNow.AddDays(14)
+    };
 }

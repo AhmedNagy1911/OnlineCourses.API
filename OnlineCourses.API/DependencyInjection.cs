@@ -1,5 +1,6 @@
 ﻿using OnlineCourses.Application;
 using OnlineCourses.Infrastructur;
+using OnlineCourses.Infrastructur.Settings;
 namespace OnlineCourses.API;
 
 public static class DependencyInjection
@@ -13,7 +14,7 @@ public static class DependencyInjection
         services.AddInfrastructure(configuration);
 
         services.AddSwaggerServices();
-
+        services.Configure<JwtSettings>(configuration.GetSection("JwtSettings"));
         return services;
     }
 

@@ -41,4 +41,26 @@ public class AuthController( IAuthService authService,
             ? Ok(result.Value)
             : result.ToProblem();
     }
+
+    [HttpPost("refresh-token")]
+    public async Task<IActionResult> RefreshToken(
+    [FromBody] RefreshTokenRequest request,
+    CancellationToken cancellationToken)
+    {
+        var result = await authService.RefreshTokenAsync(request.Token, cancellationToken);
+        return result.IsSuccess
+            ? Ok(result.Value)
+            : result.ToProblem();
+    }
+
+    [HttpPost("revoke-token")]
+    public async Task<IActionResult> RevokeToken(
+        [FromBody] RevokeTokenRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await authService.RevokeTokenAsync(request.Token, cancellationToken);
+        return result.IsSuccess
+            ? Ok()
+            : result.ToProblem();
+    }
 }

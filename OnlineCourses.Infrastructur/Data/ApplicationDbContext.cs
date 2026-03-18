@@ -16,6 +16,9 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     {
         base.OnModelCreating(builder); 
         builder.ApplyConfigurationsFromAssembly(typeof(ApplicationDbContext).Assembly);
+
+        builder.Entity<ApplicationUser>()
+        .OwnsMany(u => u.RefreshTokens);
     }
 
 }

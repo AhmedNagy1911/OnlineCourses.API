@@ -1,11 +1,11 @@
 ﻿namespace OnlineCourses.Application.Auth.DTOs;
 
 public record AuthResponse(
-    string Id,
+    string UserId,
     string Email,
-    string FirstName,
-    string LastName,
+    string DisplayName,
     string Token,
-    DateTime ExpiresAt,
-    IEnumerable<string> Roles
+    DateTime TokenExpiration,
+    string RefreshToken,
+    DateTime RefreshTokenExpiration
 );

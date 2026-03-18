@@ -10,7 +10,7 @@ public static class AuthErrors
         StatusCode: 401
     );
 
-    public static readonly Error DuplicateEmail = new(
+    public static readonly Error EmailAlreadyExists = new(
         Code: "Auth.DuplicateEmail",
         Description: "A user with this email already exists.",
         StatusCode: 409
@@ -33,4 +33,9 @@ public static class AuthErrors
         Description: string.Join(", ", errors),
         StatusCode: 400
     );
+    public static readonly Error InvalidToken =
+     new("Auth.InvalidToken", "Invalid or expired token.",401);
+
+    public static readonly Error TokenAlreadyRevoked =
+        new("Auth.TokenAlreadyRevoked", "Token has already been revoked.",409);
 }
