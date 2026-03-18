@@ -1,6 +1,5 @@
 ﻿using OnlineCourses.Application;
 using OnlineCourses.Infrastructur;
-
 namespace OnlineCourses.API;
 
 public static class DependencyInjection
@@ -22,6 +21,7 @@ public static class DependencyInjection
     {
         services.AddEndpointsApiExplorer();
         services.AddSwaggerGen();
+     
         return services;
     }
 }

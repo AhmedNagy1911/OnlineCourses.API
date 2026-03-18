@@ -1,10 +1,13 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using OnlineCourses.API.Extensions;
 using OnlineCourses.Application.DTOs;
 using OnlineCourses.Application.Interfaces.Services;
+using OnlineCourses.Domain.Constants;
 
 namespace OnlineCourses.API.Controllers;
 
+[Authorize]
 [ApiController]
 [Route("api/[controller]")]
 public class CoursesController(ICourseService courseService) : ControllerBase
@@ -26,6 +29,7 @@ public class CoursesController(ICourseService courseService) : ControllerBase
     }
 
     [HttpPost]
+    //[Authorize(Roles = AppRoles.Admin)]
     public async Task<IActionResult> Create(CreateCourseRequest request)
     {
         var course = await _courseService.CreateAsync(request);
@@ -33,6 +37,7 @@ public class CoursesController(ICourseService courseService) : ControllerBase
     }
 
     [HttpPut("{id}")]
+    //[Authorize(Roles = $"{AppRoles.Admin},{AppRoles.Instructor}")]
     public async Task<IActionResult> Update(int id, CreateCourseRequest request)
     {
         await _courseService.UpdateAsync(id, request);
