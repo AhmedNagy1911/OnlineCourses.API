@@ -38,4 +38,13 @@ public static class AuthErrors
 
     public static readonly Error TokenAlreadyRevoked =
         new("Auth.TokenAlreadyRevoked", "Token has already been revoked.",409);
+
+    public static readonly Error EmailNotConfirmed =
+        new("AUTH_003", "Email address is not confirmed", 401);
+
+    public static readonly Error InvalidOrExpiredToken =
+        new("AUTH_004", "Token is invalid or has expired", 400);
+
+    public static readonly Error EmailAlreadyConfirmed =
+        new("AUTH_005", "Email address is already confirmed", 409);
 }

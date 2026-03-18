@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
@@ -8,23 +9,26 @@ using OnlineCourses.Application.Auth.DTOs;
 using OnlineCourses.Application.Interfaces.Services;
 using OnlineCourses.Domain.Common;
 using OnlineCourses.Domain.Common.Errors;
-using OnlineCourses.Domain.Constants;
 using OnlineCourses.Domain.Entities;
 using OnlineCourses.Infrastructur.Persistence;
 using OnlineCourses.Infrastructur.Settings;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
-using System.Text;
 using System.Security.Cryptography;
+using System.Text;
 
 namespace OnlineCourses.Infrastructur.Services;
 
 public class AuthService(
     UserManager<ApplicationUser> userManager,
-    IOptions<JwtSettings> jwtOptions) : IAuthService
+    IOptions<JwtSettings> jwtOptions,
+    IEmailService emailService,
+    IConfiguration configuration) : IAuthService
 {
     private readonly JwtSettings _jwt = jwtOptions.Value;
+    private readonly string _baseUrl = configuration["AppSettings:BaseUrl"]!;
 
+    // ── Register ─────────────────────────────────────────────────────
     public async Task<Result<AuthResponse>> RegisterAsync(
         RegisterRequest request, CancellationToken ct = default)
     {
@@ -39,21 +43,24 @@ public class AuthService(
             LastName = request.LastName
         };
 
-        var result = await userManager.CreateAsync(user, request.Password);
+        var createResult = await userManager.CreateAsync(user, request.Password);
 
-        if (!result.Succeeded)
+        if (!createResult.Succeeded)
         {
             var error = new Error(
                 "Auth.RegistrationFailed",
-                result.Errors.First().Description,
+                createResult.Errors.First().Description,
                 StatusCodes.Status400BadRequest);
 
             return Result.Failure<AuthResponse>(error);
         }
 
+        await SendConfirmationEmailAsync(user, ct);
+
         return await BuildAuthResponseAsync(user);
     }
 
+    // ── Login ─────────────────────────────────────────────────────────
     public async Task<Result<AuthResponse>> LoginAsync(
         LoginRequest request, CancellationToken ct = default)
     {
@@ -62,12 +69,16 @@ public class AuthService(
         if (user is null || !await userManager.CheckPasswordAsync(user, request.Password))
             return Result.Failure<AuthResponse>(AuthErrors.InvalidCredentials);
 
+        if (!user.EmailConfirmed)
+            return Result.Failure<AuthResponse>(AuthErrors.EmailNotConfirmed);
+
         user.RefreshTokens.RemoveAll(t => !t.IsActive);
         await userManager.UpdateAsync(user);
 
         return await BuildAuthResponseAsync(user);
     }
 
+    // ── Refresh Token ─────────────────────────────────────────────────
     public async Task<Result<AuthResponse>> RefreshTokenAsync(
         string token, CancellationToken ct = default)
     {
@@ -85,12 +96,12 @@ public class AuthService(
                     ? AuthErrors.InvalidToken
                     : AuthErrors.TokenAlreadyRevoked);
 
-        // Rotate: عطّل القديم وولّد جديد
         refreshToken.RevokedOn = DateTime.UtcNow;
 
         return await BuildAuthResponseAsync(user);
     }
 
+    // ── Revoke Token ──────────────────────────────────────────────────
     public async Task<Result> RevokeTokenAsync(
         string token, CancellationToken ct = default)
     {
@@ -111,9 +122,101 @@ public class AuthService(
         return Result.Success();
     }
 
-    // ──────────────────────────────────────────
-    // Private Helpers
-    // ──────────────────────────────────────────
+    // ── Confirm Email ─────────────────────────────────────────────────
+    public async Task<Result> ConfirmEmailAsync(
+        string userId, string token, CancellationToken ct = default)
+    {
+        var user = await userManager.FindByIdAsync(userId);
+        if (user is null)
+            return Result.Failure(AuthErrors.InvalidOrExpiredToken);
+
+        if (user.EmailConfirmed)
+            return Result.Failure(AuthErrors.EmailAlreadyConfirmed);
+
+        var decodedToken = Encoding.UTF8.GetString(WebEncoders.Base64UrlDecode(token));
+        var result = await userManager.ConfirmEmailAsync(user, decodedToken);
+
+        return result.Succeeded
+            ? Result.Success()
+            : Result.Failure(AuthErrors.InvalidOrExpiredToken);
+    }
+
+    // ── Resend Confirmation Email ─────────────────────────────────────
+    public async Task<Result> ResendConfirmationEmailAsync(
+        ResendConfirmationEmailRequest request, CancellationToken ct = default)
+    {
+        var user = await userManager.FindByEmailAsync(request.Email);
+
+        // لا تكشف إذا الإيميل موجود أو لأ — دايمًا Success
+        if (user is null || user.EmailConfirmed)
+            return Result.Success();
+
+        await SendConfirmationEmailAsync(user, ct);
+
+        return Result.Success();
+    }
+
+    // ── Forgot Password ───────────────────────────────────────────────
+    public async Task<Result> ForgotPasswordAsync(
+        ForgotPasswordRequest request, CancellationToken ct = default)
+    {
+        var user = await userManager.FindByEmailAsync(request.Email);
+
+        // دايمًا Success — لا تكشف وجود الإيميل
+        if (user is null || !user.EmailConfirmed)
+            return Result.Success();
+
+        var token = await userManager.GeneratePasswordResetTokenAsync(user);
+        var encodedToken = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(token));
+        var resetLink = $"{_baseUrl}/api/auth/reset-password" +
+                           $"?userId={user.Id}&token={encodedToken}";
+
+        await emailService.SendAsync(
+            user.Email!,
+            "Reset your password",
+            EmailTemplates.ResetPassword(user.FirstName, resetLink),
+            ct
+        );
+
+        return Result.Success();
+    }
+
+    // ── Reset Password ────────────────────────────────────────────────
+    public async Task<Result> ResetPasswordAsync(
+        ResetPasswordRequest request, CancellationToken ct = default)
+    {
+        var user = await userManager.FindByIdAsync(request.UserId);
+        if (user is null)
+            return Result.Failure(AuthErrors.InvalidOrExpiredToken);
+
+        var decodedToken = Encoding.UTF8.GetString(
+                               WebEncoders.Base64UrlDecode(request.Token));
+
+        var result = await userManager.ResetPasswordAsync(
+                         user, decodedToken, request.NewPassword);
+
+        return result.Succeeded
+            ? Result.Success()
+            : Result.Failure(AuthErrors.InvalidOrExpiredToken);
+    }
+
+    // ── Private Helpers ───────────────────────────────────────────────
+    private async Task SendConfirmationEmailAsync(
+        ApplicationUser user, CancellationToken ct)
+    {
+        var token = await userManager.GenerateEmailConfirmationTokenAsync(user);
+        var encodedToken = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(token));
+        var confirmLink = $"{_baseUrl}/api/auth/confirm-email" +
+                           $"?userId={user.Id}&token={encodedToken}";
+
+        await emailService.SendAsync(
+            user.Email!,
+            "Confirm your email",
+            EmailTemplates.ConfirmEmail(user.FirstName, confirmLink),
+            ct
+        );
+    }
+
     private async Task<Result<AuthResponse>> BuildAuthResponseAsync(ApplicationUser user)
     {
         var (jwtToken, jwtExpiry) = GenerateJwtToken(user);

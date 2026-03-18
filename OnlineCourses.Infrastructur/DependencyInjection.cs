@@ -10,6 +10,7 @@ using OnlineCourses.Infrastructur.Data;
 using OnlineCourses.Infrastructur.Persistence;
 using OnlineCourses.Infrastructur.Repositories;
 using OnlineCourses.Infrastructur.Services;
+using OnlineCourses.Infrastructur.Settings;
 using System.Text;
 
 namespace OnlineCourses.Infrastructur;
@@ -78,7 +79,9 @@ public static class DependencyInjection
 
         services.AddScoped<ICourseRepository, CourseRepository>();
         services.AddScoped<IAuthService, AuthService>();
-
+       
+        services.AddScoped<IEmailService, EmailService>();
+        services.Configure<MailSettings>(configuration.GetSection("MailSettings"));
         return services;
     }
 }
