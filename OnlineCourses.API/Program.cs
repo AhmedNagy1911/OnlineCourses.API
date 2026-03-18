@@ -1,17 +1,23 @@
 using Microsoft.AspNetCore.Identity;
 using OnlineCourses.API;
-using OnlineCourses.Application;
 using OnlineCourses.Domain.Constants;
-using OnlineCourses.Infrastructur;
+using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 
+//builder.AddSerilogLogging();
+builder.Host.UseSerilog((context, configuration) =>
+    configuration.ReadFrom.Configuration(context.Configuration)
+);
+
 builder.Services.AddDependencies(builder.Configuration);
 
-//builder.Services.AddApplication();      // Application Layer DI
-//builder.Services.AddInfrastructure(builder.Configuration);
 var app = builder.Build();
 await SeedRolesAsync(app);
+
+// ? ????? Global Exception Handling Middleware ???? ?????? ???? ??ResultExtensions 
+//app.UseMiddleware<GlobalExceptionHandlingMiddleware>();
+
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
@@ -29,6 +35,7 @@ app.UseAuthorization();
 app.MapControllers();
 
 app.Run();
+
 static async Task SeedRolesAsync(WebApplication app)
 {
     using var scope = app.Services.CreateScope();
