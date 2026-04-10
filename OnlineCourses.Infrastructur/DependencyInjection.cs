@@ -4,8 +4,10 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
+using OnlineCourses.Application.Common.Interfaces;
 using OnlineCourses.Application.Interfaces.Repositories;
 using OnlineCourses.Application.Interfaces.Services;
+using OnlineCourses.Application.Services;
 using OnlineCourses.Infrastructur.Data;
 using OnlineCourses.Infrastructur.Persistence;
 using OnlineCourses.Infrastructur.Repositories;
@@ -79,8 +81,10 @@ public static class DependencyInjection
 
         services.AddScoped<ICourseRepository, CourseRepository>();
         services.AddScoped<IAuthService, AuthService>();
-       
+        services.AddScoped<IUserService, UserService>();
         services.AddScoped<IEmailService, EmailService>();
+        services.AddScoped<IEnrollmentRepository, EnrollmentRepository>();
+        services.AddScoped<IEnrollmentService, EnrollmentService>();
         services.Configure<MailSettings>(configuration.GetSection("MailSettings"));
         return services;
     }

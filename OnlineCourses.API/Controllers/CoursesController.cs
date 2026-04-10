@@ -3,11 +3,11 @@ using Microsoft.AspNetCore.Mvc;
 using OnlineCourses.API.Extensions;
 using OnlineCourses.Application.DTOs;
 using OnlineCourses.Application.Interfaces.Services;
-using OnlineCourses.Domain.Constants;
+
 
 namespace OnlineCourses.API.Controllers;
 
-[Authorize]
+//[Authorize]
 [ApiController]
 [Route("api/[controller]")]
 public class CoursesController(ICourseService courseService) : ControllerBase
